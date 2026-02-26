@@ -66,7 +66,6 @@ def run_pos_analysis(df):
     # calc averages
     pos_means = df.groupby('binary_label')[['pron_per_100', 'adj_per_100', 'modal_per_100', 'adv_per_100', 'det_per_100']].mean().reset_index()
     
-    # Rename columns for the chart and table
     pos_means.rename(columns={
         'binary_label': 'Label',
         'pron_per_100': 'Pronouns',
@@ -86,7 +85,6 @@ def run_pos_analysis(df):
     
     melted_df = pd.melt(pos_means, id_vars='Label', var_name='POS Tag', value_name='Average per 100 words')
     
-    # Plotting
     sns.set_theme(style="whitegrid")
     plt.figure(figsize=(10, 6))
     sns.barplot(x='POS Tag', y='Average per 100 words', hue='Label', data=melted_df, palette=['#1f77b4', '#ff7f0e'])
