@@ -3,11 +3,11 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-DATA_DIR = 'data'
+DATA_DIR = '/vol/bitbucket/jtr23/nlp/data'
 
-def load_and_merge_data():
+def load_and_merge_data(split_path='train_semeval_parids-labels    .csv'):
     tsv_path = os.path.join(DATA_DIR, 'dontpatronizeme_pcl.tsv')
-    csv_path = os.path.join(DATA_DIR, 'train_semeval_parids-labels.csv')
+    csv_path = os.path.join(DATA_DIR, split_path)
     
     tsv_cols = ['par_id', 'art_id', 'keyword', 'country', 'text', 'orig_label']
     df_tsv = pd.read_csv(tsv_path, sep='\t', names=tsv_cols, skiprows=4)
