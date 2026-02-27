@@ -5,7 +5,7 @@ import seaborn as sns
 
 DATA_DIR = '/vol/bitbucket/jtr23/nlp/data'
 
-def load_and_merge_data(split_path='train_semeval_parids-labels    .csv'):
+def load_and_merge_data(split_path='train_semeval_parids-labels.csv'):
     tsv_path = os.path.join(DATA_DIR, 'dontpatronizeme_pcl.tsv')
     csv_path = os.path.join(DATA_DIR, split_path)
     

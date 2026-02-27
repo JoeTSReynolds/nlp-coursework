@@ -52,7 +52,12 @@ class PCLDataset(Dataset):
         text, kw = str(self.texts[idx]), str(self.keywords[idx])
         hypo = random.choice(TEMPLATE_POOL).format(keyword=kw) if self.is_train else TEMPLATE_POOL[0].format(keyword=kw)
         enc = TOKENIZER(text, hypo, add_special_tokens=True, max_length=MAX_LEN, padding='max_length', truncation=True, return_tensors='pt')
-        return {'input_ids': enc['input_ids'].flatten(), 'attention_mask': enc['attention_mask'].flatten(), 'labels': torch.tensor(self.labels[idx], dtype=torch.long)}
+        
+        binary_label = 1 if self.labels[idx] >= 2 else 0
+
+        return {'input_ids': enc['input_ids'].flatten(),
+                'attention_mask': enc['attention_mask'].flatten(),
+                'labels': torch.tensor(binary_label, dtype=torch.long)}
 
 class EarlyStopping:
     def __init__(self, patience=2, min_delta=0.001):
@@ -107,7 +112,7 @@ def atomic_save(state, path):
 
 def create_objective(train_ds, val_ds, weights, study):
     def objective(trial):
-        lr = trial.suggest_float("lr", 1e-6, 8e-6, log=True)
+        lr = trial.suggest_float("lr", 1e-6, 1.5e-5, log=True)
         wd = trial.suggest_float("weight_decay", 0.01, 0.05)
         bs = trial.suggest_categorical("batch_size", [8, 16])
 
