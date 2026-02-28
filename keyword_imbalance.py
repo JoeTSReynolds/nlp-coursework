@@ -1,9 +1,16 @@
 import os
+from pathlib import Path
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+from dotenv import load_dotenv
 
-DATA_DIR = '/vol/bitbucket/jtr23/nlp/data'
+env_path = Path(__file__).resolve().parent / '.env'
+if env_path.exists():
+    load_dotenv(dotenv_path=env_path)
+
+BASE_PATH = os.getenv('BASE_PATH', "/vol/bitbucket/jtr23/nlp/")
+DATA_DIR = os.path.join(BASE_PATH, 'data')
 
 def load_and_merge_data(split_path='train_semeval_parids-labels.csv'):
     tsv_path = os.path.join(DATA_DIR, 'dontpatronizeme_pcl.tsv')

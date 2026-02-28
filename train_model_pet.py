@@ -4,8 +4,8 @@ import gc
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
-from transformers import AutoTokenizer, AutoModelForSequenceClassification, get_cosine_schedule_with_warmup
-from sklearn.metrics import f1_score
+from transformers import AutoTokenizer, AutoModelForMaskedLM, get_cosine_schedule_with_warmup
+from sklearn.metrics import precision_recall_fscore_support, accuracy_score
 from sklearn.model_selection import train_test_split
 from tqdm.auto import tqdm
 import optuna
@@ -23,13 +23,14 @@ if env_path.exists():
     load_dotenv(dotenv_path=env_path)
 
 BASE_PATH = os.getenv('BASE_PATH', "/vol/bitbucket/jtr23/nlp/")
-STUDY_DB_PATH = os.path.join(BASE_PATH, "pcl_optimization_binary.db")
-MODEL_SAVE_PATH = os.path.join(BASE_PATH, "best_pcl_model_binary.pt")
+STUDY_DB_PATH = os.path.join(BASE_PATH, "pcl_optimization_pet.db")
+MODEL_SAVE_PATH = os.path.join(BASE_PATH, "best_pcl_model_pet.pt")
 JOB_ID = sys.argv[1] if len(sys.argv) > 1 else "1"
-CHECKPOINT_PATH = os.path.join(BASE_PATH, f"checkpoint_job_{JOB_ID}.pt")
+CHECKPOINT_PATH = os.path.join(BASE_PATH, f"checkpoint_job_{JOB_ID}_pet.pt")
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-MODEL_NAME = "microsoft/deberta-v3-base"
-MAX_LEN = 192 #256
+
+MODEL_NAME = "roberta-large"
+MAX_LEN = 128 # 95th percentile of length was 110, should be fine and uses less memory
 SEED = 42
 
 def seed_everything(seed):
@@ -41,25 +42,30 @@ def seed_everything(seed):
 seed_everything(SEED)
 TOKENIZER = AutoTokenizer.from_pretrained(MODEL_NAME)
 
-TEMPLATE_POOL = [
-    "This text is patronising and condescending towards {keyword}.",
-    "The author shows a superior attitude toward {keyword}.",
-    "This paragraph depicts {keyword} in a way that is pitying or belittling.",
-    "The writing style regarding {keyword} creates a 'saviour' dynamic.",
-    "This content treats {keyword} as vulnerable or inferior."
-]
-
 class PCLDataset(Dataset):
-    def __init__(self, texts, keywords, labels, is_train=True):
-        self.texts, self.keywords, self.labels, self.is_train = texts, keywords, labels, is_train
+    def __init__(self, texts, keywords, labels):
+        self.texts, self.keywords, self.labels = texts, keywords, labels
+        
     def __len__(self): 
         return len(self.texts)
+        
     def __getitem__(self, idx):
         text, kw = str(self.texts[idx]), str(self.keywords[idx])
-        hypo = random.choice(TEMPLATE_POOL).format(keyword=kw) if self.is_train else TEMPLATE_POOL[0].format(keyword=kw)
-        enc = TOKENIZER(text, hypo, add_special_tokens=True, max_length=MAX_LEN, padding='max_length', truncation=True, return_tensors='pt')
         
-        binary_label = 1 if self.labels[idx] >= 2 else 0
+        # The new PET Cloze Prompt
+        prompt_q = f"Question: Is the author being patronizing or condescending towards {kw}? Answer: {TOKENIZER.mask_token}"
+        
+        enc = TOKENIZER(
+            text,
+            prompt_q,
+            add_special_tokens=True,
+            max_length=MAX_LEN,
+            padding='max_length',
+            truncation='only_first',
+            return_tensors='pt'
+        )
+        
+        binary_label = self.labels[idx]
 
         return {'input_ids': enc['input_ids'].flatten(),
                 'attention_mask': enc['attention_mask'].flatten(),
@@ -90,12 +96,10 @@ def wait_for_free_vram(min_gb_required=7.5, check_interval=60):
     
     while True:
         try:
-            # Query nvidia-smi for free memory in MiB
             res = subprocess.check_output([
                 'nvidia-smi', '--query-gpu=memory.free', 
                 '--format=csv,nounits,noheader'
             ])
-            # If multiple GPUs, this takes the first one (index 0)
             free_mem_mb = int(res.decode().strip().split('\n')[0])
             free_gb = free_mem_mb / 1024
             
@@ -116,25 +120,44 @@ def atomic_save(state, path):
     torch.save(state, tmp_path)
     os.replace(tmp_path, path)
 
-def create_objective(train_ds, val_ds, weights, study):
+def create_objective(train_ds, val_ds, num_class_0, num_class_1, study):
+    # vocab IDs for the two target words (what the model will predict)
+    c0_id = TOKENIZER(" No", add_special_tokens=False)['input_ids'][0]
+    c1_id = TOKENIZER(" Yes", add_special_tokens=False)['input_ids'][0]
+    
     def objective(trial):
+        trial.set_user_attr("job_id", JOB_ID)
+
+        alpha = trial.suggest_float("alpha", 0.3, 0.7)
         lr = trial.suggest_float("lr", 1e-6, 1.5e-5, log=True)
         wd = trial.suggest_float("weight_decay", 0.01, 0.05)
-        bs = trial.suggest_categorical("batch_size", [8, 16])
+        
+        # 2 lots of batch 4 with gradient accumulation to simulate batch 8 whilst saving VRAM
+        bs = 4
+        accum_steps = 2
 
-        model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME, num_labels=2).float().to(DEVICE)
+        # dampened class weighting
+        raw_w0 = (num_class_0 + num_class_1) / (2 * num_class_0 + 1e-8)
+        scaled_w0 = 1.0 + alpha * (raw_w0 - 1.0)
+        raw_w1 = (num_class_0 + num_class_1) / (2 * num_class_1 + 1e-8)
+        scaled_w1 = 1.0 + alpha * (raw_w1 - 1.0)
+        class_weights = torch.tensor([scaled_w0, scaled_w1], dtype=torch.float).to(DEVICE)
+        print(f"\n[Job {JOB_ID}] Trial {trial.number} Params: alpha={alpha:.4f}, lr={lr:.2e}, weight_decay={wd:.4f}, scaled_w0={scaled_w0:.4f}, scaled_w1={scaled_w1:.4f}")    
+
+        model = AutoModelForMaskedLM.from_pretrained(MODEL_NAME).float().to(DEVICE)
         
         train_loader = DataLoader(train_ds, batch_size=bs, shuffle=True)
         val_loader = DataLoader(val_ds, batch_size=bs)
         optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=wd)
         
         epochs = 10
-        total_steps = len(train_loader) * epochs
+        total_steps = (len(train_loader) * epochs) // accum_steps
         scheduler = get_cosine_schedule_with_warmup(optimizer, num_warmup_steps=int(0.1 * total_steps), num_training_steps=total_steps)
-        criterion = nn.CrossEntropyLoss(weight=weights)
+        criterion = nn.CrossEntropyLoss(weight=class_weights)
         early_stopper = EarlyStopping(patience=2)
 
-        # resume trial if checkpoint exists
+        scaler = torch.cuda.amp.GradScaler()  # for mixed precision training, for VRAM and speed benefits
+
         start_epoch = 0
         if os.path.exists(CHECKPOINT_PATH):
             checkpoint = torch.load(CHECKPOINT_PATH, map_location=DEVICE, weights_only=False)
@@ -146,20 +169,39 @@ def create_objective(train_ds, val_ds, weights, study):
                 print(f"\n[Job {JOB_ID}] Resuming Trial {trial.number} from Epoch {start_epoch}")
             del checkpoint
 
-        # training
-        final_f1 = 0.0
         for epoch in range(start_epoch, epochs):
             model.train() 
             train_pbar = tqdm(train_loader, desc=f"Job {JOB_ID} T{trial.number} E{epoch}", leave=False)
-            for batch in train_pbar:
-                optimizer.zero_grad()
+            
+            optimizer.zero_grad() 
+            
+            for step, batch in enumerate(train_pbar):
                 ids, mask, lbls = batch['input_ids'].to(DEVICE), batch['attention_mask'].to(DEVICE), batch['labels'].to(DEVICE)
-                loss = criterion(model(ids, attention_mask=mask).logits, lbls)
-                loss.backward()
-                optimizer.step()
-                scheduler.step()
+                
+                # mixed precision forward pass
+                with torch.autocast(device_type='cuda', dtype=torch.float16):
+                    outputs = model(ids, attention_mask=mask)
+                    seq_logits = outputs.logits
+                    
+                    mask_indices = (ids == TOKENIZER.mask_token_id).nonzero(as_tuple=True)[1]
+                    mask_logits = seq_logits[torch.arange(seq_logits.size(0)), mask_indices]
+                    verb_logits = mask_logits[:, [c0_id, c1_id]]
+                    
+                    loss = criterion(verb_logits, lbls)
+                    # divide loss by accum_steps so the total sum represents a single batch of 8
+                    loss = loss / accum_steps 
+                
+                # backward pass with gradient scaling for mixed precision
+                scaler.scale(loss).backward()
+                
+                # step the optimizer every `accum_steps` or at the very end of the dataloader
+                if ((step + 1) % accum_steps == 0) or ((step + 1) == len(train_loader)):
+                    scaler.step(optimizer)
+                    scaler.update()
+                    optimizer.zero_grad()
+                    scheduler.step()
 
-                train_pbar.set_postfix({'loss': f"{loss.item():.4f}"})
+                train_pbar.set_postfix({'loss': f"{(loss.item() * accum_steps):.4f}"})
 
             # evaluation
             model.eval()
@@ -168,16 +210,20 @@ def create_objective(train_ds, val_ds, weights, study):
             with torch.no_grad():
                 for b in val_loader:
                     ids, mask, lbls = b['input_ids'].to(DEVICE), b['attention_mask'].to(DEVICE), b['labels'].to(DEVICE)
-                    out = model(ids, attention_mask=mask).logits
-                    loss = criterion(out, lbls)
+                    
+                    outputs = model(ids, attention_mask=mask)
+                    seq_logits = outputs.logits
+                    
+                    mask_indices = (ids == TOKENIZER.mask_token_id).nonzero(as_tuple=True)[1]
+                    mask_logits = seq_logits[torch.arange(seq_logits.size(0)), mask_indices]
+                    verb_logits = mask_logits[:, [c0_id, c1_id]]
+                    
+                    loss = criterion(verb_logits, lbls)
                     val_loss += loss.item()
 
-                    p.extend(torch.argmax(out, dim=1).cpu().numpy())
-                    t.extend(b['labels'].cpu().numpy())
+                    p.extend(torch.argmax(verb_logits, dim=1).cpu().numpy())
+                    t.extend(lbls.cpu().numpy())
             
-            final_f1 = f1_score(t, p)
-
-            from sklearn.metrics import precision_recall_fscore_support, accuracy_score
             precision, recall, f1, _ = precision_recall_fscore_support(t, p, average='binary', zero_division=0)
             acc = accuracy_score(t, p)
             avg_val_loss = val_loss / len(val_loader)
@@ -186,35 +232,33 @@ def create_objective(train_ds, val_ds, weights, study):
             print(f"  -> Loss: {avg_val_loss:.4f} | Acc: {acc:.4f}")
             print(f"  -> Precision: {precision:.4f} | Recall: {recall:.4f} | F1: {f1:.4f}")
             
-            # save checkpoint after each epoch
             atomic_save({
                 'trial_number': trial.number,
                 'epoch': epoch,
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'scheduler_state_dict': scheduler.state_dict(),
-                'f1': final_f1
+                'f1': f1
             }, CHECKPOINT_PATH)
 
-            # save best model globally across all trials
             try:
                 best_so_far = study.best_value
             except ValueError:
                 best_so_far = -1.0
 
-            if final_f1 > best_so_far:
+            if f1 > best_so_far:
                 atomic_save(model.state_dict(), MODEL_SAVE_PATH)
-                print(f"[Job {JOB_ID}] *** New Global Best F1: {final_f1:.4f} (Saved to {MODEL_SAVE_PATH}) ***")
+                print(f"[Job {JOB_ID}] *** New Global Best F1: {f1:.4f} (Saved to {MODEL_SAVE_PATH}) ***")
 
-            trial.report(final_f1, epoch)
+            trial.report(f1, epoch)
             if trial.should_prune():
                 del model
                 torch.cuda.empty_cache()
                 gc.collect()
                 raise optuna.exceptions.TrialPruned()
             
-            if epoch >= 3: # grace period
-                early_stopper(final_f1)
+            if epoch >= 3: 
+                early_stopper(f1)
                 if early_stopper.early_stop:
                     print(f"[{JOB_ID}] Early stopping triggered at epoch {epoch}")
                     break
@@ -222,32 +266,38 @@ def create_objective(train_ds, val_ds, weights, study):
         del model
         torch.cuda.empty_cache()
         gc.collect()
-        return final_f1
+        return f1
     
     return objective
 
 if __name__ == "__main__":
-    # wait until space to run
     wait_for_free_vram(min_gb_required=6)
 
     df = load_and_merge_data()
+
+    num_class_0 = len(df[df['binary_label'] == 0])
+    num_class_1 = len(df[df['binary_label'] == 1])
+    print(f"Class distribution: Class 0 = {num_class_0}, Class 1 = {num_class_1}, Ratio = {num_class_0 / (num_class_1 + 1e-8):.2f}")
+
+    train_df, val_df = train_test_split(df, test_size=0.2, stratify=df['binary_label'], random_state=SEED)
     
-    counts = df['orig_label'].value_counts().sort_index()
-    weights = torch.tensor([1.0, 4.0], dtype=torch.float).to(DEVICE)#torch.tensor((len(df) / (len(counts) * counts)).values, dtype=torch.float).to(DEVICE)
-    train_df, val_df = train_test_split(df, test_size=0.2, stratify=df['orig_label'], random_state=SEED)
-    
-    train_ds = PCLDataset(train_df['text'].tolist(), train_df['keyword'].tolist(), train_df['orig_label'].tolist(), is_train=True)
-    val_ds = PCLDataset(val_df['text'].tolist(), val_df['keyword'].tolist(), val_df['orig_label'].tolist(), is_train=False)
+    train_ds = PCLDataset(train_df['text'].tolist(), train_df['keyword'].tolist(), train_df['binary_label'].tolist())
+    val_ds = PCLDataset(val_df['text'].tolist(), val_df['keyword'].tolist(), val_df['binary_label'].tolist())
 
     study = optuna.create_study(
-        study_name="pcl_nli_deberta_binary",
+        study_name="pcl_pet_binary",
         storage=f"sqlite:///{os.path.abspath(STUDY_DB_PATH)}",
         load_if_exists=True,
         direction="maximize",
         pruner=optuna.pruners.MedianPruner(n_warmup_steps=3)
     )
 
-    existing_trials = [t for t in study.trials if t.state.name == "FAIL" or t.state.name == "RUNNING"]
+    # This is for if a job was interrupted then restarted
+    existing_trials = [
+        t for t in study.trials 
+        if (t.state.name == "FAIL" or t.state.name == "RUNNING") 
+        and t.user_attrs.get("job_id") == JOB_ID
+    ]
     
     target_params = None
     if existing_trials:
@@ -255,15 +305,15 @@ if __name__ == "__main__":
         target_params = last_trial.params
         print(f"[{JOB_ID}] Found failed/interrupted Trial {last_trial.number}. Re-using params: {target_params}")
 
-    # use these specific params for the next trial
     if target_params:
-        study.enqueue_trial(target_params)
+        study.enqueue_trial(target_params) # basically the next trial uses the same params and resumes epochs, loading in the checkpoint
 
-    obj_func = create_objective(train_ds, val_ds, weights, study)
+
+    obj_func = create_objective(train_ds, val_ds, num_class_0, num_class_1, study)
     try:
-        study.optimize(obj_func, n_trials=20)
+        study.optimize(obj_func, n_trials=10)
     except KeyboardInterrupt:
         print("Got keyboard interrupt, saved progress")
         sys.exit(0)
 
-    print(f"\nBest Params: {study.best_params}")
+    print(f"\nFinished trials, check db for best params.")
