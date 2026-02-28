@@ -12,12 +12,14 @@ if env_path.exists():
 BASE_PATH = os.getenv('BASE_PATH', "/vol/bitbucket/jtr23/nlp/")
 DATA_DIR = os.path.join(BASE_PATH, 'data')
 
-def load_and_merge_data(split_path='train_semeval_parids-labels.csv'):
-    tsv_path = os.path.join(DATA_DIR, 'dontpatronizeme_pcl.tsv')
+def load_and_merge_data(split_path='train_semeval_parids-labels.csv', main_csv='dontpatronizeme_pcl_augmented.csv'):
+    main_csv_path = os.path.join(DATA_DIR, main_csv)
     csv_path = os.path.join(DATA_DIR, split_path)
     
-    tsv_cols = ['par_id', 'art_id', 'keyword', 'country', 'text', 'orig_label']
-    df_tsv = pd.read_csv(tsv_path, sep='\t', names=tsv_cols, skiprows=4)
+    if main_csv.endswith('.tsv'):
+        df_tsv = pd.read_csv(main_csv_path, sep='\t', skiprows=4, names=['par_id', 'art_id', 'keyword', 'country', 'text', 'orig_label'])
+    else:
+        df_tsv = pd.read_csv(main_csv_path)
     
     df_tsv['orig_label'] = pd.to_numeric(df_tsv['orig_label'], errors='coerce')
     
@@ -65,6 +67,6 @@ def plot_keyword_imbalance(df):
 
 if __name__ == "__main__":
     print("Loading data...")
-    df = load_and_merge_data()
+    df = load_and_merge_data(main_csv='dontpatronizeme_pcl.tsv')
     print("Plotting keyword imbalance...")
     plot_keyword_imbalance(df)
