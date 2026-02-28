@@ -30,7 +30,7 @@ CHECKPOINT_PATH = os.path.join(BASE_PATH, f"checkpoint_job_{JOB_ID}_pet.pt")
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 MODEL_NAME = "roberta-large"
-MAX_LEN = 128 # 95th percentile of length was 110, should be fine and uses less memory
+MAX_LEN = 192 # 95th percentile of length was 118, should be fine
 SEED = 42
 
 def seed_everything(seed):
@@ -78,8 +78,9 @@ class EarlyStopping:
         self.counter = 0
         self.best_score = None
         self.early_stop = False
+        self.best_weights = None # save best weights in main memory to reload
 
-    def __call__(self, current_score):
+    def __call__(self, current_score, model):
         if self.best_score is None:
             self.best_score = current_score
         elif current_score < self.best_score + self.min_delta:
@@ -166,6 +167,7 @@ def create_objective(train_ds, val_ds, num_class_0, num_class_1, study):
                 optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
                 scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
                 start_epoch = checkpoint['epoch'] + 1
+                early_stopper.best_score = checkpoint.get('best_f1_score', None) # resume early stopping tracking
                 print(f"\n[Job {JOB_ID}] Resuming Trial {trial.number} from Epoch {start_epoch}")
             del checkpoint
 
@@ -238,7 +240,8 @@ def create_objective(train_ds, val_ds, num_class_0, num_class_1, study):
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'scheduler_state_dict': scheduler.state_dict(),
-                'f1': f1
+                'f1': f1,
+                'best_trial_f1': early_stopper.best_score
             }, CHECKPOINT_PATH)
 
             try:
@@ -257,15 +260,22 @@ def create_objective(train_ds, val_ds, num_class_0, num_class_1, study):
                 gc.collect()
                 raise optuna.exceptions.TrialPruned()
             
-            if epoch >= 3: 
+            if epoch >= 3: # grace before starting looking for early stopping
                 early_stopper(f1)
                 if early_stopper.early_stop:
                     print(f"[{JOB_ID}] Early stopping triggered at epoch {epoch}")
+                    # restore best weights before breaking
+                    model.load_state_dict(early_stopper.best_weights)
                     break
 
         del model
         torch.cuda.empty_cache()
         gc.collect()
+
+        if early_stopper.best_score is not None:
+            print(f"[{JOB_ID}] Trial {trial.number} Best F1: {early_stopper.best_score:.4f} at epoch {epoch - early_stopper.counter}")
+            return early_stopper.best_score
+
         return f1
     
     return objective
