@@ -22,15 +22,15 @@ BASE_PATH = os.getenv('BASE_PATH', "/vol/bitbucket/jtr23/nlp/")
 DATA_DIR = os.path.join(BASE_PATH, 'data')
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-log_path = os.path.join(BASE_PATH, "optuna_kfold_run.log")
-logger = setup_logger(log_path)
-logger.info("=== STARTING NEW TRAINING PIPELINE ===")
-
 parser = argparse.ArgumentParser(description="PCL 5-Fold Training Pipeline")
 parser.add_argument("--tapt", action="store_true", help="Use the local TAPT model instead of the base HuggingFace model")
 parser.add_argument("--save_prefix", type=str, default="deberta", help="Prefix for the saved model files (e.g., 'baseline' or 'tapt')")
 parser.add_argument("--model_override", type=str, default=None, help="Override the default DeBERTa model")
 args = parser.parse_args()
+
+log_path = os.path.join(BASE_PATH, f"{args.save_prefix}_optuna_kfold_run.log")
+logger = setup_logger(log_path)
+logger.info("=== STARTING NEW TRAINING PIPELINE ===")
 
 if args.model_override:
     MODEL_NAME = args.model_override
@@ -177,6 +177,8 @@ def objective(trial):
     scaled_w1 = 1.0 + alpha * (raw_w1 - 1.0)
     class_weights = torch.tensor([scaled_w0, scaled_w1], dtype=torch.float).to(DEVICE)
 
+    logger.info(f"Class distribution in Fold 0: Class 0 = {num_class_0}, Class 1 = {num_class_1}, Ratio = {num_class_1 / (num_class_0 + 1e-8):.2f} -> Scaled Weights: Class 0 = {scaled_w0:.2f}, Class 1 = {scaled_w1:.2f}")
+
     model = AutoModelForMaskedLM.from_pretrained(MODEL_NAME).float().to(DEVICE)
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=wd)
     
@@ -222,6 +224,7 @@ if __name__ == "__main__":
         raw_w1 = (num_class_0 + num_class_1) / (2 * num_class_1 + 1e-8)
         scaled_w1 = 1.0 + best_params["alpha"] * (raw_w1 - 1.0)
         class_weights = torch.tensor([scaled_w0, scaled_w1], dtype=torch.float).to(DEVICE)
+        logger.info(f"Fold {fold} class distribution: Class 0 = {num_class_0}, Class 1 = {num_class_1}, Ratio = {num_class_1 / (num_class_0 + 1e-8):.2f} -> Scaled Weights: Class 0 = {scaled_w0:.2f}, Class 1 = {scaled_w1:.2f}")
 
         model = AutoModelForMaskedLM.from_pretrained(MODEL_NAME).float().to(DEVICE)
         optimizer = torch.optim.AdamW(model.parameters(), lr=best_params["lr"], weight_decay=best_params["weight_decay"])
