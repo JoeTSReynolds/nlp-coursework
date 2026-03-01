@@ -15,6 +15,8 @@ DATA_DIR = os.path.join(BASE_PATH, 'data')
 MODEL_NAME = "microsoft/deberta-v3-large"
 TAPT_SAVE_PATH = os.path.join(BASE_PATH, "deberta-v3-tapt")
 
+SEED = 42
+
 def run_tapt():
     print("Loading Tokenizer...")
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
@@ -33,6 +35,9 @@ def run_tapt():
     print("Tokenizing dataset for MLM...")
     tokenized_datasets = hf_dataset.map(tokenize_function, batched=True, remove_columns=["text"])
     
+    print("Splitting dataset into train and eval...")
+    split_datasets = tokenized_datasets.train_test_split(test_size=0.1, seed=SEED)
+    
     # mask 15% of the words dynamically
     data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=True, mlm_probability=0.15)
     
@@ -42,11 +47,12 @@ def run_tapt():
         output_dir=os.path.join(BASE_PATH, "deberta-v3-tapt_checkpoints"),
         num_train_epochs=3,          # 3 epochs is standard for TAPT
         per_device_train_batch_size=8,
+        per_device_eval_batch_size=8,
         save_steps=1000,
         save_total_limit=1,
         prediction_loss_only=True,
         fp16=True,
-        eval_strategy="epoch",              
+        eval_strategy="epoch", 
         learning_rate=2e-5,
         weight_decay=0.01,
         logging_steps=50,
@@ -56,7 +62,8 @@ def run_tapt():
         model=model,
         args=training_args,
         data_collator=data_collator,
-        train_dataset=tokenized_datasets,
+        train_dataset=split_datasets["train"],
+        eval_dataset=split_datasets["test"],
     )
     
     print("Starting Task-Adaptive Pretraining (TAPT)...")
