@@ -29,14 +29,18 @@ logger.info("=== STARTING NEW TRAINING PIPELINE ===")
 parser = argparse.ArgumentParser(description="PCL 5-Fold Training Pipeline")
 parser.add_argument("--tapt", action="store_true", help="Use the local TAPT model instead of the base HuggingFace model")
 parser.add_argument("--save_prefix", type=str, default="deberta", help="Prefix for the saved model files (e.g., 'baseline' or 'tapt')")
+parser.add_argument("--model_override", type=str, default=None, help="Override the default DeBERTa model")
 args = parser.parse_args()
 
-if args.tapt:
+if args.model_override:
+    MODEL_NAME = args.model_override
+    logger.info(f"Loading OVERRIDE model: {MODEL_NAME}")
+elif args.tapt:
     MODEL_NAME = os.path.join(BASE_PATH, "deberta-v3-tapt")
-    print(f"Loading local TAPT model from: {MODEL_NAME}")
+    logger.info(f"Loading local TAPT model from: {MODEL_NAME}")
 else:
     MODEL_NAME = "microsoft/deberta-v3-large"
-    print(f"Loading raw Hugging Face model: {MODEL_NAME}")
+    logger.info(f"Loading Hugging Face model: {MODEL_NAME}")
 
 MAX_LEN = 192
 SEED = 42
@@ -90,12 +94,12 @@ def get_dataloaders(fold, bs):
 def train_eval_loop(model, train_loader, val_loader, optimizer, scheduler, criterion, scaler, epochs, trial=None):
     c0_id = TOKENIZER(" No", add_special_tokens=False)['input_ids'][0]
     c1_id = TOKENIZER(" Yes", add_special_tokens=False)['input_ids'][0]
-    accum_steps = 2
     
     best_f1 = -1.0
     best_weights = None
     patience_counter = 0
     PATIENCE_LIMIT = 2
+    EARLY_STOPPER_GRACE = 3
 
     for epoch in range(epochs):
         model.train()
@@ -110,17 +114,14 @@ def train_eval_loop(model, train_loader, val_loader, optimizer, scheduler, crite
                 seq_logits = outputs.logits
                 mask_indices = (ids == TOKENIZER.mask_token_id).long().argmax(dim=-1)
                 verb_logits = seq_logits[torch.arange(seq_logits.size(0), device=DEVICE), mask_indices][:, [c0_id, c1_id]]
-                loss = criterion(verb_logits, lbls) / accum_steps
+                loss = criterion(verb_logits, lbls)
 
             scaler.scale(loss).backward()
 
-            if ((step + 1) % accum_steps == 0) or ((step + 1) == len(train_loader)):
-                scale_before = scaler.get_scale()
-                scaler.step(optimizer)
-                scaler.update()
-                if scale_before <= scaler.get_scale():
-                    scheduler.step()
-                optimizer.zero_grad()
+            scaler.step(optimizer)
+            scaler.update()
+            scheduler.step()
+            optimizer.zero_grad()
 
         # Evaluation
         model.eval()
@@ -145,7 +146,8 @@ def train_eval_loop(model, train_loader, val_loader, optimizer, scheduler, crite
             best_weights = {k: v.cpu().clone() for k, v in model.state_dict().items()}
             patience_counter = 0
         else:
-            patience_counter += 1
+            if epoch >= EARLY_STOPPER_GRACE:  # Start early stopping checks after a grace period
+                patience_counter += 1
 
         if trial:
             trial.report(f1, epoch)
@@ -162,8 +164,8 @@ def objective(trial):
     alpha = trial.suggest_float("alpha", 0.40, 0.60)
     lr = trial.suggest_float("lr", 3e-6, 9e-6, log=True)
     wd = trial.suggest_float("weight_decay", 0.02, 0.06)
-    epochs = 6
-    bs = 4
+    epochs = 10
+    bs = 8
     
     logger.info(f"\n[Trial {trial.number}] Testing params: lr={lr:.2e}, alpha={alpha:.2f}, wd={wd:.3f}")
     
@@ -207,8 +209,8 @@ if __name__ == "__main__":
     logger.info(" PHASE 2: 5-FOLD ENSEMBLE TRAINING       ")
     logger.info("=========================================")
     
-    bs = 4
-    epochs = 6
+    bs = 8
+    epochs = 10
 
     for fold in range(N_FOLDS):
         logger.info(f"\n---> Training Fold {fold}/{N_FOLDS-1}")
