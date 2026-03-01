@@ -16,3 +16,4 @@ protobuf
 tokenizers
 numpy
 python-dotenv
+sentence-piece

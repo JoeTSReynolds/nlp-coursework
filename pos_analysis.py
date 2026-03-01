@@ -94,8 +94,10 @@ def run_pos_analysis(df):
     plt.xlabel('Part of Speech', fontsize=12)
     plt.tight_layout()
     
-    plt.savefig('pos_analysis.png', dpi=300)
-    print("Saved chart as 'pos_analysis.png'")
+    os.makedirs('plots', exist_ok=True)
+
+    plt.savefig('plots/pos_analysis.png', dpi=300)
+    print("Saved chart as 'plots/pos_analysis.png'")
 
 if __name__ == "__main__":
     df = load_and_merge_data()

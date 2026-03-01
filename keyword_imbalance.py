@@ -60,10 +60,12 @@ def plot_keyword_imbalance(df):
     plt.xticks(rotation=45)
     plt.tight_layout()
     
-    plt.savefig('keyword_imbalance.png', dpi=300)
+    os.makedirs('plots', exist_ok=True)
+
+    plt.savefig('plots/keyword_imbalance.png', dpi=300)
     plt.show()
     
-    print("Saved chart as 'keyword_imbalance.png'")
+    print("Saved chart as 'plots/keyword_imbalance.png'")
 
 if __name__ == "__main__":
     print("Loading data...")
