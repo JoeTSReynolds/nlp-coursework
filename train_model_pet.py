@@ -51,8 +51,11 @@ class PCLDataset(Dataset):
         
     def __getitem__(self, idx):
         text, kw = str(self.texts[idx]), str(self.keywords[idx])
-        
-        # The new PET Cloze Prompt
+       
+        # make sure the text doesn't contain the special <mask> token (probably won't but just in case) as may confuse model
+        text = text.replace(TOKENIZER.mask_token, "")
+
+        # PET cloze prompt
         prompt_q = f"Question: Is the author being patronizing or condescending towards {kw}? Answer: {TOKENIZER.mask_token}"
         
         enc = TOKENIZER(
@@ -72,21 +75,22 @@ class PCLDataset(Dataset):
                 'labels': torch.tensor(binary_label, dtype=torch.long)}
 
 class EarlyStopping:
-    def __init__(self, patience=2, min_delta=0.001):
+    def __init__(self, patience=2, min_delta=0.001, grace_epochs=3):
         self.patience = patience
         self.min_delta = min_delta
+        self.grace_epochs = grace_epochs
         self.counter = 0
         self.best_score = None
         self.early_stop = False
-        self.best_weights = None # save best weights in main memory to reload
 
-    def __call__(self, current_score, model):
+    def __call__(self, current_score, epoch):
         if self.best_score is None:
             self.best_score = current_score
         elif current_score < self.best_score + self.min_delta:
-            self.counter += 1
-            if self.counter >= self.patience:
-                self.early_stop = True
+            if epoch >= self.grace_epochs:
+                self.counter += 1
+                if self.counter >= self.patience:
+                    self.early_stop = True
         else:
             self.best_score = current_score
             self.counter = 0
@@ -167,10 +171,13 @@ def create_objective(train_ds, val_ds, num_class_0, num_class_1, study):
                 optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
                 scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
                 start_epoch = checkpoint['epoch'] + 1
-                early_stopper.best_score = checkpoint.get('best_f1_score', None) # resume early stopping tracking
+                early_stopper.best_score = checkpoint.get('best_trial_f1', None) # resume early stopping tracking
                 print(f"\n[Job {JOB_ID}] Resuming Trial {trial.number} from Epoch {start_epoch}")
             del checkpoint
 
+        trial_best_f1 = -1.0
+        if start_epoch > 0 and early_stopper.best_score is not None:
+            trial_best_f1 = early_stopper.best_score
         for epoch in range(start_epoch, epochs):
             model.train() 
             train_pbar = tqdm(train_loader, desc=f"Job {JOB_ID} T{trial.number} E{epoch}", leave=False)
@@ -185,8 +192,8 @@ def create_objective(train_ds, val_ds, num_class_0, num_class_1, study):
                     outputs = model(ids, attention_mask=mask)
                     seq_logits = outputs.logits
                     
-                    mask_indices = (ids == TOKENIZER.mask_token_id).nonzero(as_tuple=True)[1]
-                    mask_logits = seq_logits[torch.arange(seq_logits.size(0)), mask_indices]
+                    mask_indices = (ids == TOKENIZER.mask_token_id).long().argmax(dim=-1)
+                    mask_logits = seq_logits[torch.arange(seq_logits.size(0), device=DEVICE), mask_indices]
                     verb_logits = mask_logits[:, [c0_id, c1_id]]
                     
                     loss = criterion(verb_logits, lbls)
@@ -196,12 +203,18 @@ def create_objective(train_ds, val_ds, num_class_0, num_class_1, study):
                 # backward pass with gradient scaling for mixed precision
                 scaler.scale(loss).backward()
                 
-                # step the optimizer every `accum_steps` or at the very end of the dataloader
+                # step the optimiser every accum_steps or at the end of the dataloader
                 if ((step + 1) % accum_steps == 0) or ((step + 1) == len(train_loader)):
+                    scale_before = scaler.get_scale()
+
                     scaler.step(optimizer)
                     scaler.update()
+                    
+                    # only scale if optimiser actually updated the weights (sometimes doesnt for nan)
+                    if scale_before <= scaler.get_scale():
+                        scheduler.step()
+                        
                     optimizer.zero_grad()
-                    scheduler.step()
 
                 train_pbar.set_postfix({'loss': f"{(loss.item() * accum_steps):.4f}"})
 
@@ -216,8 +229,8 @@ def create_objective(train_ds, val_ds, num_class_0, num_class_1, study):
                     outputs = model(ids, attention_mask=mask)
                     seq_logits = outputs.logits
                     
-                    mask_indices = (ids == TOKENIZER.mask_token_id).nonzero(as_tuple=True)[1]
-                    mask_logits = seq_logits[torch.arange(seq_logits.size(0)), mask_indices]
+                    mask_indices = (ids == TOKENIZER.mask_token_id).long().argmax(dim=-1)
+                    mask_logits = seq_logits[torch.arange(seq_logits.size(0), device=DEVICE), mask_indices]
                     verb_logits = mask_logits[:, [c0_id, c1_id]]
                     
                     loss = criterion(verb_logits, lbls)
@@ -233,7 +246,23 @@ def create_objective(train_ds, val_ds, num_class_0, num_class_1, study):
             print(f"\n[{JOB_ID}] Trial {trial.number} Epoch {epoch} Report:")
             print(f"  -> Loss: {avg_val_loss:.4f} | Acc: {acc:.4f}")
             print(f"  -> Precision: {precision:.4f} | Recall: {recall:.4f} | F1: {f1:.4f}")
+
+            try:
+                best_so_far = study.best_value
+            except ValueError:
+                best_so_far = -1.0
+
+            if f1 > trial_best_f1:
+                trial_best_f1 = f1
+                
+                # only save if best of trial and best in study
+                if f1 > best_so_far:
+                    atomic_save(model.state_dict(), MODEL_SAVE_PATH)
+                    print(f"[Job {JOB_ID}] *** New Global Best F1: {f1:.4f} (Saved to {MODEL_SAVE_PATH}) ***")
             
+            early_stopper(f1, epoch)
+
+            # save checkpoint
             atomic_save({
                 'trial_number': trial.number,
                 'epoch': epoch,
@@ -243,30 +272,21 @@ def create_objective(train_ds, val_ds, num_class_0, num_class_1, study):
                 'f1': f1,
                 'best_trial_f1': early_stopper.best_score
             }, CHECKPOINT_PATH)
-
-            try:
-                best_so_far = study.best_value
-            except ValueError:
-                best_so_far = -1.0
-
-            if f1 > best_so_far:
-                atomic_save(model.state_dict(), MODEL_SAVE_PATH)
-                print(f"[Job {JOB_ID}] *** New Global Best F1: {f1:.4f} (Saved to {MODEL_SAVE_PATH}) ***")
+            print(f"[Job {JOB_ID}] Saved checkpoint epoch {epoch} F1: {f1:.4f} (Saved to {CHECKPOINT_PATH})")
 
             trial.report(f1, epoch)
-            if trial.should_prune():
-                del model
-                torch.cuda.empty_cache()
-                gc.collect()
-                raise optuna.exceptions.TrialPruned()
             
-            if epoch >= 3: # grace before starting looking for early stopping
-                early_stopper(f1)
-                if early_stopper.early_stop:
-                    print(f"[{JOB_ID}] Early stopping triggered at epoch {epoch}")
-                    # restore best weights before breaking
-                    model.load_state_dict(early_stopper.best_weights)
-                    break
+            # only prune if defo not best score
+            if early_stopper.best_score <= best_so_far:
+                if trial.should_prune():
+                    del model
+                    torch.cuda.empty_cache()
+                    gc.collect()
+                    raise optuna.exceptions.TrialPruned()
+            
+            if early_stopper.early_stop:
+                print(f"[{JOB_ID}] Early stopping triggered at epoch {epoch}")
+                break
 
         del model
         torch.cuda.empty_cache()
@@ -321,7 +341,7 @@ if __name__ == "__main__":
 
     obj_func = create_objective(train_ds, val_ds, num_class_0, num_class_1, study)
     try:
-        study.optimize(obj_func, n_trials=10)
+        study.optimize(obj_func, n_trials=20)
     except KeyboardInterrupt:
         print("Got keyboard interrupt, saved progress")
         sys.exit(0)
