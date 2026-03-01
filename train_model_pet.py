@@ -10,7 +10,7 @@ from sklearn.model_selection import train_test_split
 from tqdm.auto import tqdm
 import optuna
 import numpy as np
-from keyword_imbalance import load_and_merge_data
+from data_utils import load_training_and_validation
 import sys
 from pathlib import Path
 from dotenv import load_dotenv
@@ -23,10 +23,10 @@ if env_path.exists():
     load_dotenv(dotenv_path=env_path)
 
 BASE_PATH = os.getenv('BASE_PATH', "/vol/bitbucket/jtr23/nlp/")
-STUDY_DB_PATH = os.path.join(BASE_PATH, "pcl_optimization_pet.db")
-MODEL_SAVE_PATH = os.path.join(BASE_PATH, "best_pcl_model_pet.pt")
+STUDY_DB_PATH = os.path.join(BASE_PATH, "pcl_optimization_pet_final.db")
+MODEL_SAVE_PATH = os.path.join(BASE_PATH, "best_pcl_model_pet_final.pt")
 JOB_ID = sys.argv[1] if len(sys.argv) > 1 else "1"
-CHECKPOINT_PATH = os.path.join(BASE_PATH, f"checkpoint_job_{JOB_ID}_pet.pt")
+CHECKPOINT_PATH = os.path.join(BASE_PATH, f"checkpoint_job_{JOB_ID}_pet_final.pt")
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 MODEL_NAME = "roberta-large"
@@ -303,14 +303,12 @@ def create_objective(train_ds, val_ds, num_class_0, num_class_1, study):
 if __name__ == "__main__":
     wait_for_free_vram(min_gb_required=6)
 
-    df = load_and_merge_data()
+    train_df, val_df = load_training_and_validation() # uses augmented datasets
 
-    num_class_0 = len(df[df['binary_label'] == 0])
-    num_class_1 = len(df[df['binary_label'] == 1])
-    print(f"Class distribution: Class 0 = {num_class_0}, Class 1 = {num_class_1}, Ratio = {num_class_0 / (num_class_1 + 1e-8):.2f}")
+    num_class_0 = len(train_df[train_df['binary_label'] == 0])
+    num_class_1 = len(train_df[train_df['binary_label'] == 1])
+    print(f"Training Class distribution: Class 0 = {num_class_0}, Class 1 = {num_class_1}, Ratio = 1:{num_class_0 / (num_class_1 + 1e-8):.2f}")
 
-    train_df, val_df = train_test_split(df, test_size=0.2, stratify=df['binary_label'], random_state=SEED)
-    
     train_ds = PCLDataset(train_df['text'].tolist(), train_df['keyword'].tolist(), train_df['binary_label'].tolist())
     val_ds = PCLDataset(val_df['text'].tolist(), val_df['keyword'].tolist(), val_df['binary_label'].tolist())
 
