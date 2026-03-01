@@ -51,7 +51,7 @@ def run_tapt():
         save_steps=1000,
         save_total_limit=1,
         prediction_loss_only=True,
-        fp16=True,
+        bf16=True,
         eval_strategy="epoch", 
         learning_rate=2e-5,
         weight_decay=0.01,
