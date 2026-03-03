@@ -119,8 +119,12 @@ def train_eval_loop(model, train_loader, val_loader, optimizer, scheduler, crite
             scaler.scale(loss).backward()
 
             scaler.step(optimizer)
+            scale_before = scaler.get_scale()
             scaler.update()
-            scheduler.step()
+
+            if scale_before <= scaler.get_scale():
+                scheduler.step()
+
             optimizer.zero_grad()
 
         # Evaluation

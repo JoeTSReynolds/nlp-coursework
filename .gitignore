@@ -1,3 +1,6 @@
 data
 venv
 .env
+UNUSED
+slurm_logs
+__pycache__

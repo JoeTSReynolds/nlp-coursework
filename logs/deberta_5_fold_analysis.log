@@ -1,0 +1,45 @@
+Starting Error Analysis on dipper.doc.ic.ac.uk
+Loading datasets...
+Target Dev Lines: 2094
+Target Test Lines: 3832
+
+
+--- Performing Initial Error Analysis with Untrained Model ---
+
+--- Performing Local Error Analysis (Exercise 5.2) ---
+
+Confusion Matrix Counts:
+error_type
+True Negative                        1881
+False Negative (Missed PCL)           199
+False Positive (Hallucinated PCL)      14
+Name: count, dtype: int64
+
+Calculating F1 Score by Keyword...
+[SUCCESS] Error Analysis files saved.
+--- Loading baseline Fold 0 ---
+--- Loading baseline Fold 1 ---
+--- Loading baseline Fold 2 ---
+--- Loading baseline Fold 3 ---
+--- Loading baseline Fold 4 ---
+
+--- Finding Optimal Threshold on Dev Set ---
+Optimal Threshold: 0.30 (Dev Ensemble F1: 0.5249)
+
+--- Performing Local Error Analysis (Exercise 5.2) ---
+
+Confusion Matrix Counts:
+error_type
+True Negative                        1768
+False Positive (Hallucinated PCL)     127
+True Positive                         116
+False Negative (Missed PCL)            83
+Name: count, dtype: int64
+
+Calculating F1 Score by Keyword...
+[SUCCESS] Error Analysis files saved.
+
+--- Generating Submission Files ---
+[SUCCESS] Wrote 2094 lines to /vol/bitbucket/jtr23/nlp/baseline_dev.txt
+[SUCCESS] Wrote 3832 lines to /vol/bitbucket/jtr23/nlp/baseline_test.txt
+Error Analysis Job completed successfully.

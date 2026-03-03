@@ -1,0 +1,40 @@
+Starting Error Analysis on clapper.doc.ic.ac.uk
+Loading datasets...
+Target Dev Lines: 2094
+Target Test Lines: 3832
+
+
+--- Performing Initial Error Analysis with Untrained Model ---
+
+--- Performing Local Error Analysis (Exercise 5.2) ---
+
+Confusion Matrix Counts:
+error_type
+True Negative                  1895
+False Negative (Missed PCL)     199
+Name: count, dtype: int64
+
+Calculating F1 Score by Keyword...
+[SUCCESS] Error Analysis files saved.
+--- Loading Single Model pet_final ---
+
+--- Finding Optimal Threshold on Dev Set ---
+Optimal Threshold: 0.42 (Dev Ensemble F1: 0.6216)
+
+--- Performing Local Error Analysis (Exercise 5.2) ---
+
+Confusion Matrix Counts:
+error_type
+True Negative                        1819
+True Positive                         124
+False Positive (Hallucinated PCL)      76
+False Negative (Missed PCL)            75
+Name: count, dtype: int64
+
+Calculating F1 Score by Keyword...
+[SUCCESS] Error Analysis files saved.
+
+--- Generating Submission Files ---
+[SUCCESS] Wrote 2094 lines to /vol/bitbucket/jtr23/nlp/pet_final_dev.txt
+[SUCCESS] Wrote 3832 lines to /vol/bitbucket/jtr23/nlp/pet_final_test.txt
+Error Analysis Job completed successfully.

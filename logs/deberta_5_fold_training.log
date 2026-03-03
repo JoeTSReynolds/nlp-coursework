@@ -1,0 +1,67 @@
+2026-03-01 19:54:57 | INFO | === STARTING NEW TRAINING PIPELINE ===
+2026-03-01 19:54:57 | INFO | Loading Hugging Face model: microsoft/deberta-v3-large
+2026-03-01 19:54:58 | INFO | =========================================
+2026-03-01 19:54:58 | INFO |  PHASE 1: OPTUNA TUNING (FOLD 0 ONLY)    
+2026-03-01 19:54:58 | INFO | =========================================
+2026-03-01 19:54:58 | INFO | 
+[Trial 0] Testing params: lr=8.48e-06, alpha=0.48, wd=0.023
+2026-03-01 19:54:59 | INFO | Class distribution in Fold 0: Class 0 = 6065, Class 1 = 1254, Ratio = 0.21 -> Scaled Weights: Class 0 = 0.81, Class 1 = 1.92
+2026-03-01 21:27:11 | INFO | 
+[Trial 1] Testing params: lr=7.33e-06, alpha=0.42, wd=0.059
+2026-03-01 21:27:11 | INFO | Class distribution in Fold 0: Class 0 = 6065, Class 1 = 1254, Ratio = 0.21 -> Scaled Weights: Class 0 = 0.83, Class 1 = 1.80
+2026-03-01 22:58:58 | INFO | 
+[Trial 2] Testing params: lr=8.96e-06, alpha=0.52, wd=0.040
+2026-03-01 22:58:58 | INFO | Class distribution in Fold 0: Class 0 = 6065, Class 1 = 1254, Ratio = 0.21 -> Scaled Weights: Class 0 = 0.79, Class 1 = 2.00
+2026-03-02 00:30:40 | INFO | 
+[Trial 3] Testing params: lr=4.56e-06, alpha=0.40, wd=0.030
+2026-03-02 00:30:40 | INFO | Class distribution in Fold 0: Class 0 = 6065, Class 1 = 1254, Ratio = 0.21 -> Scaled Weights: Class 0 = 0.84, Class 1 = 1.77
+2026-03-02 02:02:32 | INFO | 
+[Trial 4] Testing params: lr=3.47e-06, alpha=0.41, wd=0.051
+2026-03-02 02:02:32 | INFO | Class distribution in Fold 0: Class 0 = 6065, Class 1 = 1254, Ratio = 0.21 -> Scaled Weights: Class 0 = 0.84, Class 1 = 1.78
+2026-03-02 03:34:35 | INFO | 
+[Trial 5] Testing params: lr=5.25e-06, alpha=0.58, wd=0.037
+2026-03-02 03:34:35 | INFO | Class distribution in Fold 0: Class 0 = 6065, Class 1 = 1254, Ratio = 0.21 -> Scaled Weights: Class 0 = 0.77, Class 1 = 2.11
+2026-03-02 05:06:38 | INFO | 
+[Trial 6] Testing params: lr=5.40e-06, alpha=0.47, wd=0.045
+2026-03-02 05:06:38 | INFO | Class distribution in Fold 0: Class 0 = 6065, Class 1 = 1254, Ratio = 0.21 -> Scaled Weights: Class 0 = 0.81, Class 1 = 1.90
+2026-03-02 06:38:30 | INFO | 
+[Trial 7] Testing params: lr=7.16e-06, alpha=0.43, wd=0.032
+2026-03-02 06:38:30 | INFO | Class distribution in Fold 0: Class 0 = 6065, Class 1 = 1254, Ratio = 0.21 -> Scaled Weights: Class 0 = 0.83, Class 1 = 1.83
+2026-03-02 08:10:17 | INFO | 
+[Trial 8] Testing params: lr=7.03e-06, alpha=0.42, wd=0.029
+2026-03-02 08:10:17 | INFO | Class distribution in Fold 0: Class 0 = 6065, Class 1 = 1254, Ratio = 0.21 -> Scaled Weights: Class 0 = 0.83, Class 1 = 1.80
+2026-03-02 09:42:18 | INFO | 
+[Trial 9] Testing params: lr=5.96e-06, alpha=0.44, wd=0.039
+2026-03-02 09:42:18 | INFO | Class distribution in Fold 0: Class 0 = 6065, Class 1 = 1254, Ratio = 0.21 -> Scaled Weights: Class 0 = 0.82, Class 1 = 1.85
+2026-03-02 11:14:02 | INFO | 
+[WINNING PARAMS] Found best hyperparameters: {'alpha': 0.5789622703195686, 'lr': 5.2453611557923125e-06, 'weight_decay': 0.037158000325123175}
+2026-03-02 11:14:02 | INFO | 
+=========================================
+2026-03-02 11:14:02 | INFO |  PHASE 2: 5-FOLD ENSEMBLE TRAINING       
+2026-03-02 11:14:02 | INFO | =========================================
+2026-03-02 11:14:02 | INFO | 
+---> Training Fold 0/4
+2026-03-02 11:14:02 | INFO | Fold 0 class distribution: Class 0 = 6065, Class 1 = 1254, Ratio = 0.21 -> Scaled Weights: Class 0 = 0.77, Class 1 = 2.11
+2026-03-02 11:59:56 | INFO | Early stopping triggered at epoch 4. No improvement for 2 epochs.
+2026-03-02 12:00:00 | INFO | [Fold 0 Complete] Best F1: 0.0000 -> Saved to /vol/bitbucket/jtr23/nlp/baseline_deberta_fold_0.pt
+2026-03-02 12:00:01 | INFO | 
+---> Training Fold 1/4
+2026-03-02 12:00:01 | INFO | Fold 1 class distribution: Class 0 = 6065, Class 1 = 1293, Ratio = 0.21 -> Scaled Weights: Class 0 = 0.77, Class 1 = 2.07
+2026-03-02 12:46:10 | INFO | Early stopping triggered at epoch 4. No improvement for 2 epochs.
+2026-03-02 12:46:15 | INFO | [Fold 1 Complete] Best F1: 0.0000 -> Saved to /vol/bitbucket/jtr23/nlp/baseline_deberta_fold_1.pt
+2026-03-02 12:46:16 | INFO | 
+---> Training Fold 2/4
+2026-03-02 12:46:16 | INFO | Fold 2 class distribution: Class 0 = 6065, Class 1 = 1276, Ratio = 0.21 -> Scaled Weights: Class 0 = 0.77, Class 1 = 2.09
+2026-03-02 14:18:44 | INFO | [Fold 2 Complete] Best F1: 0.4955 -> Saved to /vol/bitbucket/jtr23/nlp/baseline_deberta_fold_2.pt
+2026-03-02 14:18:44 | INFO | 
+---> Training Fold 3/4
+2026-03-02 14:18:44 | INFO | Fold 3 class distribution: Class 0 = 6065, Class 1 = 1271, Ratio = 0.21 -> Scaled Weights: Class 0 = 0.77, Class 1 = 2.09
+2026-03-02 15:04:44 | INFO | Early stopping triggered at epoch 4. No improvement for 2 epochs.
+2026-03-02 15:04:48 | INFO | [Fold 3 Complete] Best F1: 0.0000 -> Saved to /vol/bitbucket/jtr23/nlp/baseline_deberta_fold_3.pt
+2026-03-02 15:04:49 | INFO | 
+---> Training Fold 4/4
+2026-03-02 15:04:49 | INFO | Fold 4 class distribution: Class 0 = 6064, Class 1 = 1251, Ratio = 0.21 -> Scaled Weights: Class 0 = 0.77, Class 1 = 2.11
+2026-03-02 15:50:41 | INFO | Early stopping triggered at epoch 4. No improvement for 2 epochs.
+2026-03-02 15:50:46 | INFO | [Fold 4 Complete] Best F1: 0.0000 -> Saved to /vol/bitbucket/jtr23/nlp/baseline_deberta_fold_4.pt
+2026-03-02 15:50:46 | INFO | 
+[SUCCESS] Pipeline complete!

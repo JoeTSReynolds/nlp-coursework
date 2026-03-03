@@ -1,0 +1,48 @@
+Starting Error Analysis on dipper.doc.ic.ac.uk
+Loading datasets...
+Target Dev Lines: 2094
+Target Test Lines: 3832
+
+
+--- Performing Initial Error Analysis with Untrained Model ---
+
+--- Finding Optimal Threshold on Dev Set (Untrained) ---
+Optimal Untrained Threshold: 0.16 (Dev F1: 0.1739)
+
+--- Performing Local Error Analysis (Exercise 5.2) ---
+
+Confusion Matrix Counts:
+error_type
+False Positive (Hallucinated PCL)    1891
+True Positive                         199
+True Negative                           4
+Name: count, dtype: int64
+
+Calculating F1 Score by Keyword...
+[SUCCESS] Error Analysis files saved.
+--- Loading roberta Fold 0 ---
+--- Loading roberta Fold 1 ---
+--- Loading roberta Fold 2 ---
+--- Loading roberta Fold 3 ---
+--- Loading roberta Fold 4 ---
+
+--- Finding Optimal Threshold on Dev Set (Trained) ---
+Optimal Threshold: 0.46 (Dev Ensemble F1: 0.6250)
+
+--- Performing Local Error Analysis (Exercise 5.2) ---
+
+Confusion Matrix Counts:
+error_type
+True Negative                        1830
+True Positive                         120
+False Negative (Missed PCL)            79
+False Positive (Hallucinated PCL)      65
+Name: count, dtype: int64
+
+Calculating F1 Score by Keyword...
+[SUCCESS] Error Analysis files saved.
+
+--- Generating Submission Files ---
+[SUCCESS] Wrote 2094 lines to /vol/bitbucket/jtr23/nlp/roberta_dev.txt
+[SUCCESS] Wrote 3832 lines to /vol/bitbucket/jtr23/nlp/roberta_test.txt
+Error Analysis Job completed successfully.

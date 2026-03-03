@@ -43,7 +43,7 @@ def load_data():
     dev_df['text'] = dev_df['text'].fillna("")
     dev_df['kw'] = dev_df['kw'].fillna("")
     
-    test_df = pd.read_csv(os.path.join(DATA_DIR, "task_4_test.tsv"), sep='\t', names=['par_id', 'art_id', 'kw', 'country', 'text'])
+    test_df = pd.read_csv(os.path.join(DATA_DIR, "task4_test.tsv"), sep='\t', names=['par_id', 'art_id', 'kw', 'country', 'text'])
     test_df['par_id'] = test_df['par_id'].astype(str).str.strip()
     test_df['kw'] = test_df['kw'].fillna("")
     
@@ -115,6 +115,8 @@ def perform_error_analysis(df, probs, thresh, prefix):
 def main():
     dev_df, test_df = load_data()
     
+    true_labels = dev_df['binary_label'].values
+
     print(f"Target Dev Lines: {len(dev_df)}")
     print(f"Target Test Lines: {len(test_df)}\n")
 
@@ -122,7 +124,21 @@ def main():
     print("\n--- Performing Initial Error Analysis with Untrained Model ---")
     untrained_model = AutoModelForMaskedLM.from_pretrained(args.model_name).float().to(DEVICE)
     untrained_probs = get_predictions(untrained_model, dev_df['text'].tolist(), dev_df['kw'].tolist())
-    perform_error_analysis(dev_df, untrained_probs, 0.5, f"{args.save_prefix}_untrained")
+
+    print("\n--- Finding Optimal Threshold on Dev Set (Untrained) ---")
+    best_thresh_untrained = 0.5
+    best_f1_untrained = 0.0
+
+    for thresh in np.arange(0.1, 0.9, 0.02):
+        preds_untrained = (untrained_probs >= thresh).astype(int)
+        _, _, f1, _ = precision_recall_fscore_support(true_labels, preds_untrained, average='binary', zero_division=0)
+        if f1 > best_f1_untrained:
+            best_f1_untrained = f1
+            best_thresh_untrained = thresh
+
+    print(f"Optimal Untrained Threshold: {best_thresh_untrained:.2f} (Dev F1: {best_f1_untrained:.4f})")
+
+    perform_error_analysis(dev_df, untrained_probs, best_thresh_untrained, f"{args.save_prefix}_untrained")
     del untrained_model
     torch.cuda.empty_cache()
 
@@ -134,7 +150,7 @@ def main():
         print(f"--- Loading Single Model {args.save_prefix} ---")
         model = AutoModelForMaskedLM.from_pretrained(args.model_name).float().to(DEVICE)
         
-        weight_path = os.path.join(BASE_PATH, f"best_model_{args.save_prefix}.pt")
+        weight_path = os.path.join(BASE_PATH, f"best_pcl_model_{args.save_prefix}.pt")
             
         model.load_state_dict(torch.load(weight_path, map_location=DEVICE, weights_only=True))
         
@@ -171,10 +187,9 @@ def main():
         dev_ensemble_probs /= args.num_folds
         test_ensemble_probs /= args.num_folds
     
-    print("\n--- Finding Optimal Threshold on Dev Set ---")
+    print("\n--- Finding Optimal Threshold on Dev Set (Trained) ---")
     best_thresh = 0.5
     best_f1 = 0.0
-    true_labels = dev_df['binary_label'].values
     
     for thresh in np.arange(0.1, 0.9, 0.02):
         preds = (dev_ensemble_probs >= thresh).astype(int)
