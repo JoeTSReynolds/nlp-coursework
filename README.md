@@ -33,7 +33,8 @@ graph LR
     class C split;
     class D,E,F,G,H ensemble;
 ```
-### Training Pipeline
+
+### Inference Pipeline
 ```mermaid
 graph TB
     In[Input Text<br/>e.g., Test Set] --> D[Trained RoBERTa-large<br/>Fold 0]
@@ -61,20 +62,23 @@ graph TB
 
 ## Repo Structure
 
+```text
 ├── BestModel/                              # Contains the five model ensemble (check `generate_submission.py` for how inference works)
 ├── error_analysis/                         # Contains CSVs of error analysis from ablation study
 ├── logs/                                   # Contains logs from training and running `generate_submission.py`
 ├── plots/                                  # Contains plots for EDA and code used to generate them
 ├── scripts/                                # Contains python scripts covering augmentation, training, and evaluation
 │   ├── cluster_utils.py                    # Useful functions for running on DOC cluster
-│   ├── data_utils .py                      # Useful functions for data loading
+│   ├── data_utils.py                       # Useful functions for data loading
 │   ├── fold_dataset_gen.py                 # Generates the 5-fold stratified cross validation split augmented datasets from original unaugmented dataset
 │   ├── generate_submission.py              # Runs evaluation and error analysis on the model and generates `dev.txt` and `test.txt`
-│   └── train_kfold_optuna.txt              # Trains the 5 folds of the model with optuna hyperparam search
+│   └── train_kfold_optuna.py               # Trains the 5 folds of the model with optuna hyperparam search
+├── .gitignore                              # Git ignore file
+├── requirements.txt                        # Python dependencies
 ├── dev.txt                                 # Final model predictions on the official dev set (1 per line)
-├── test.txt                                # Final model predictions on the official hidden test set
+├── test.txt                                # Final model predictions on the official hidden test set (1 per line)
 ├── NLP_PCL_Coursework-Joe_Reynolds.pdf     # Critical review, EDA, and local evaluation write-up
 └── README.md                               # This file
+```
 
-
-The BestModel ensemble achieved an F1 score of 0.6250 on the dev set.
+The BestModel ensemble achieved an F1 score of **0.6250** on the dev set.
